@@ -1,0 +1,12 @@
+# Incident 3: Brute Force - Windows SSH
+# Detection: Multiple failed logon attempts against same account
+# Event: Windows Event ID 4625 (Failed Logon)
+# MITRE: TA0006 Credential Access - T1110 Brute Force
+#
+# NOTE: Source_Network_Address is blank when attack vector is SSH.
+# Detection pivots to Account_Name count. Known Windows logging limitation.
+
+index=main EventCode=4625 Caller_Process_Name="*sshd*"
+| stats count by Account_Name, Logon_Type, Caller_Process_Name
+| where count > 5
+| sort -count

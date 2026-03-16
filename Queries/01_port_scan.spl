@@ -1,0 +1,10 @@
+# Incident 1: Port Scan / Recon
+# Detection: Single source IP hitting more than 5 unique ports within 1 minute
+# Event: Sysmon Event ID 3 (Network Connection)
+# MITRE: TA0043 Recon - T1046 Network Service Discovery
+
+index=main EventCode=3
+| bucket _time span=1m
+| stats dc(DestinationPort) as unique_ports by _time, SourceIp, DestinationIp
+| where unique_ports > 5
+| sort -unique_ports

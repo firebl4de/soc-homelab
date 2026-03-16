@@ -1,0 +1,11 @@
+# Incident 2: Brute Force - Linux SSH
+# Detection: Failed SSH login attempts exceeding threshold per source IP
+# Source: /var/log/secure (linux_secure sourcetype)
+# MITRE: TA0006 Credential Access - T1110 Brute Force
+
+index=main sourcetype=linux_secure "Failed password"
+| rex "from (?P<src_ip>\d+\.\d+\.\d+\.\d+)"
+| rex "for (?P<target_user>\w+) from"
+| stats count by src_ip, target_user
+| where count > 5
+| sort -count

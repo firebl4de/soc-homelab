@@ -1,0 +1,10 @@
+# Incident 5: Persistence - Scheduled Task
+# Detection: Scheduled task created with suspicious keywords in payload
+# Event: Windows Event ID 4698 (Scheduled Task Created)
+# MITRE: TA0003 Persistence - T1053.005
+
+index=main EventCode=4698
+| search TaskContent="*ExecutionPolicy*" OR TaskContent="*ByPass*"
+    OR TaskContent="*shell*" OR TaskContent="*temp*"
+| table _time, Account_Name, Task_Name, TaskContent
+| sort _time

@@ -1,0 +1,11 @@
+# Incident 8: Kerberoasting
+# Detection: Kerberos service ticket requested with RC4 encryption (0x17)
+# Event: Windows Event ID 4769 (Kerberos Service Ticket Operations)
+# MITRE: TA0006 Credential Access - T1558.003
+#
+# Modern AD uses AES (0x12). RC4 (0x17) = forced downgrade = attacker.
+# Alert on ANY 4769 with 0x17 regardless of whether cracking succeeds.
+
+index=main EventCode=4769 Ticket_Encryption_Type=0x17
+| table _time, Account_Name, Service_Name, Ticket_Encryption_Type, Client_Address
+| sort -_time

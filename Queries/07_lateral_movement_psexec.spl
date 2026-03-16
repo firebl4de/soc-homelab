@@ -1,0 +1,22 @@
+# Incident 7: Lateral Movement - PsExec (Impacket)
+# Detection: Random binary from services.exe as SYSTEM + new service + Logon Type 3
+# Events: Sysmon EID 1, Windows EID 7045, Windows EID 4624
+# MITRE: TA0008 Lateral Movement - T1021.002 | T1543.003
+#
+# Legitimate PsExec drops PSEXESVC.exe. Impacket drops a randomly named binary.
+
+# Random binary spawned by services.exe
+index=main EventCode=1 ParentImage="*services.exe*" Image="C:\\Windows\\*.exe"
+| where NOT match(Image, "(?i)(svchost|sppsvc|TrustedInstaller|msiexec)")
+| table _time, User, Image, CommandLine, ParentImage
+| sort _time
+
+# New service creation
+index=main EventCode=7045
+| table _time, ServiceName, ServiceFileName
+| sort _time
+
+# Logon Type 3 - correlate with above timestamps
+index=main EventCode=4624 Logon_Type=3
+| table _time, Account_Name, Logon_Type, IpAddress
+| sort _time

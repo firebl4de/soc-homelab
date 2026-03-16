@@ -1,0 +1,15 @@
+# Incident 4: Reverse Shell
+# Detection: PowerShell making outbound connection to non-standard port
+# Events: Sysmon EID 1 (Process Create), Sysmon EID 3 (Network Connection)
+# MITRE: TA0002 Execution - T1059.001 | TA0011 C2 - T1571
+
+# Primary - outbound to non-standard port
+index=main EventCode=3 Image="*powershell*"
+| where DestinationPort != 80 AND DestinationPort != 443
+| table _time, User, Image, DestinationIp, DestinationPort
+| sort _time
+
+# Secondary - ExecutionPolicy Bypass in commandline
+index=main EventCode=1 Image="*powershell*" CommandLine="*ExecutionPolicy*Bypass*"
+| table _time, User, Image, CommandLine, ParentImage
+| sort _time
