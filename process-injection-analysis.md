@@ -6,7 +6,6 @@ Analyzed a suspicious binary exhibiting process injection behavior.
 ## Tools Used
 - PEStudio
 - FLOSS
-- Detect-It-Easy (DIE)
 
 ## Key Indicators Identified
 - Imports: VirtualAlloc, WriteProcessMemory, CreateRemoteThread
