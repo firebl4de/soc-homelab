@@ -1,0 +1,13 @@
+# Incident 9: Pass-the-Hash
+# Detection: NTLM authentication used for network logon instead of Kerberos
+# Event: Windows Event ID 4624 (Successful Logon)
+# MITRE: TA0008 Lateral Movement - T1550.002 Pass-the-Hash
+#
+# In a domain environment, admin logins between machines use Kerberos by default.
+# NTLM (NtLmSsp) from an external/non-domain IP is the smoking gun.
+# No password cracking required — the hash IS the credential.
+
+index=main EventCode=4624 Logon_Type=3
+| search Logon_Process="NtLmSsp" Account_Name="Administrator"
+| table _time, Account_Name, Logon_Type, src_ip, Workstation_Name, Logon_Process
+| sort -_time
