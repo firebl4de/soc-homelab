@@ -1,0 +1,23 @@
+# Incident 10: DCSync
+# Detection: DS-Replication GUIDs in EID 4662 from a non-DC source
+# Event: Windows Event ID 4662 (Operation on AD Object)
+# MITRE: TA0006 Credential Access - T1003.006 DCSync
+#
+# The attacker impersonates a DC using DRSUAPI and requests all domain hashes.
+# EID 4662 requires ADSI object-level auditing + Directory Service Access audit policy.
+#
+# Detection gap note: EID 4662 did not fire on Windows Server 2016 in this lab
+# despite correct audit policy configuration. This is a documented real-world
+# limitation. Production environments should validate 4662 generation via
+# purple team exercises. Microsoft Defender for Identity detects DCSync at the
+# network level and does not rely solely on Windows event logs.
+
+index=main EventCode=4662
+| search Properties="*1131f6aa*" OR Properties="*1131f6ab*"
+| table _time, Account_Name, Object_Name, Properties
+| sort -_time
+
+# Enabling required audit policy on DC (run on DC as Administrator):
+# auditpol /set /subcategory:"Directory Service Access" /success:enable /failure:enable
+# auditpol /set /subcategory:"Directory Service Replication" /success:enable /failure:enable
+# Then configure ADSI object auditing on DC=domain,DC=local for replication permissions.
