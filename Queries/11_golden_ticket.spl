@@ -1,0 +1,39 @@
+# INC-011 — Golden Ticket
+# MITRE: T1558.001 — Golden Ticket
+# Tactic: TA0006 Credential Access
+#
+# Detection logic:
+# EID 4672 (Special Privileges Assigned) for an account that does not exist in Active Directory.
+# No preceding EID 4768 (TGT Request) because the ticket was forged offline — the KDC never issued it.
+# The absence of 4768 combined with 4672 for an unknown account is the smoking gun.
+#
+# Lab confirmed: fakeadmin does not exist in AD. EID 4672 fired 4 times. No EID 4768 generated.
+
+# --- PRIMARY DETECTION ---
+# EID 4672 for account with no AD creation record
+index=main EventCode=4672
+| stats count by Account_Name
+| search NOT [
+    search index=main EventCode=4720
+    | stats count by Account_Name
+    | fields Account_Name
+  ]
+
+# --- SUPPORTING QUERY 1 ---
+# Direct search for known phantom account
+index=main EventCode=4672 Account_Name="fakeadmin"
+| table _time, Account_Name, Privileges
+| sort -_time
+
+# --- SUPPORTING QUERY 2 ---
+# Confirm no 4768 was generated (ticket never issued by KDC)
+index=main EventCode=4768 Account_Name="fakeadmin"
+| table _time, Account_Name, Client_Address
+| sort -_time
+# Expected result: 0 events — confirms offline forgery
+
+# --- SUPPORTING QUERY 3 ---
+# Full Kerberos event view for the account in question
+index=main (EventCode=4768 OR EventCode=4769 OR EventCode=4672) Account_Name="fakeadmin"
+| table _time, EventCode, Account_Name, Client_Address, Service_Name
+| sort _time
