@@ -1,6 +1,6 @@
 # SOC Home Lab
 
-A hands-on home lab simulating a real-world attack chain from initial reconnaissance through Active Directory attacks. Built to develop practical detection, investigation, and incident response skills using industry-standard tools.
+A hands-on home lab simulating a real-world attack chain from initial reconnaissance through full Active Directory compromise. Built to develop practical detection, investigation, and incident response skills using industry-standard tools.
 
 ---
 
@@ -19,10 +19,10 @@ A hands-on home lab simulating a real-world attack chain from initial reconnaiss
 
 ## Attack Chain
 
-The lab covers a full threat actor kill chain across 8 incidents:
+The lab covers a full threat actor kill chain across 10 incidents:
 
 ```
-Reconnaissance → Credential Access → Execution → Persistence → Credential Dumping → Lateral Movement → AD Attack
+Reconnaissance → Credential Access → Execution → Persistence → Credential Dumping → Lateral Movement → AD Attack → Domain Compromise
 ```
 
 | # | Incident | Tool | Severity |
@@ -35,6 +35,8 @@ Reconnaissance → Credential Access → Execution → Persistence → Credentia
 | 06 | Credential Dumping — LSASS | Mimikatz + comsvcs.dll | CRITICAL |
 | 07 | Lateral Movement — PsExec | Impacket PsExec | CRITICAL |
 | 08 | Kerberoasting | Impacket GetUserSPNs | HIGH |
+| 09 | Pass-the-Hash | Impacket PsExec + NTLM hash | HIGH |
+| 10 | DCSync | Impacket secretsdump | HIGH |
 
 ---
 
@@ -56,8 +58,19 @@ Each incident includes:
 | File | Description |
 |---|---|
 | `README.md` | This file |
-| `SOC_Detection_Report.md` | Full report — all 8 incidents with detection, IR, and RCA |
-| `SOC_Report_Final.pdf` | PDF version of the report |
+| `SOC_Detection_Report.md` | Full report — all 10 incidents with detection, IR, and RCA |
+| `SOC_Detection_Report.pdf` | PDF version of the report |
+| `attack_chain.html` | Interactive attack chain diagram |
+| `Queries/01_port_scan.spl` | SPL — Port scan detection |
+| `Queries/02_brute_force_linux.spl` | SPL — Linux SSH brute force |
+| `Queries/03_brute_force_windows.spl` | SPL — Windows SSH brute force |
+| `Queries/04_reverse_shell.spl` | SPL — Reverse shell detection |
+| `Queries/05_persistence_scheduled_task.spl` | SPL — Scheduled task persistence |
+| `Queries/06_credential_dumping_lsass.spl` | SPL — LSASS credential dumping |
+| `Queries/07_lateral_movement_psexec.spl` | SPL — PsExec lateral movement |
+| `Queries/08_kerberoasting.spl` | SPL — Kerberoasting (RC4 downgrade) |
+| `Queries/09_pass_the_hash.spl` | SPL — Pass-the-Hash (NtLmSsp) |
+| `Queries/10_dcsync.spl` | SPL — DCSync (DS-Replication GUIDs) |
 
 ---
 
@@ -71,7 +84,7 @@ Each incident includes:
 | Hydra | SSH brute force simulation |
 | Netcat | Reverse shell listener |
 | Mimikatz | Credential dumping (LSASS) |
-| Impacket | PsExec lateral movement + Kerberoasting |
+| Impacket | PsExec, GetUserSPNs, secretsdump, Pass-the-Hash |
 | Windows Server 2016 | Active Directory domain controller |
 
 ---
@@ -95,6 +108,14 @@ index=main EventCode=4769 Ticket_Encryption_Type=0x17
 # PsExec Lateral Movement — random binary from services.exe
 index=main EventCode=1 ParentImage="*services.exe*" Image="C:\\Windows\\*.exe"
 | where NOT match(Image, "(?i)(svchost|sppsvc|TrustedInstaller|msiexec)")
+
+# Pass-the-Hash — NTLM used instead of Kerberos for network logon
+index=main EventCode=4624 Logon_Type=3
+| search Logon_Process="NtLmSsp" Account_Name="Administrator"
+
+# DCSync — DS-Replication GUIDs from non-DC source
+index=main EventCode=4662
+| search Properties="*1131f6aa*" OR Properties="*1131f6ab*"
 ```
 
 ---
@@ -104,8 +125,8 @@ index=main EventCode=1 ParentImage="*services.exe*" Image="C:\\Windows\\*.exe"
 | Tactic | Techniques Covered |
 |---|---|
 | TA0043 Reconnaissance | T1046 Network Service Discovery |
-| TA0006 Credential Access | T1110.001 Password Guessing, T1003.001 LSASS Memory, T1558.003 Kerberoasting |
+| TA0006 Credential Access | T1110.001 Password Guessing, T1003.001 LSASS Memory, T1558.003 Kerberoasting, T1003.006 DCSync |
 | TA0002 Execution | T1059.001 PowerShell |
 | TA0011 Command & Control | T1571 Non-Standard Port |
 | TA0003 Persistence | T1053.005 Scheduled Task |
-| TA0008 Lateral Movement | T1021.002 SMB/Admin Shares, T1543.003 Windows Service |
+| TA0008 Lateral Movement | T1021.002 SMB/Admin Shares, T1543.003 Windows Service, T1550.002 Pass-the-Hash |
