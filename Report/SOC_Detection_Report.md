@@ -2,7 +2,7 @@
 
 **Analyst:** Home Lab  
 **Date:** March 2026  
-**Incidents:** 8 documented  
+**Incidents:** 10 documented  
 **Environment:** Kali → Windows 10 Pro / Windows Server 2016 → Splunk on CentOS  
 **Framework:** MITRE ATT&CK  
 **Tools:** Splunk, Sysmon, Impacket, Hydra, Netcat, Mimikatz, Nmap  
@@ -11,7 +11,7 @@
 
 ## Executive Summary
 
-This report documents 8 simulated attack scenarios executed in an isolated home lab environment. Each incident covers the attack technique, detection method, SPL query, key IOCs, MITRE ATT&CK mapping, Incident Response procedure from a Tier 1 SOC analyst perspective, and Root Cause Analysis with remediation recommendations.
+This report documents 10 simulated attack scenarios executed in an isolated home lab environment. Each incident covers the attack technique, detection method, SPL query, key IOCs, MITRE ATT&CK mapping, Incident Response procedure from a Tier 1 SOC analyst perspective, and Root Cause Analysis with remediation recommendations.
 
 The attack chain progresses from initial reconnaissance through credential access, execution, persistence, lateral movement, and Active Directory attacks — mirroring a realistic threat actor kill chain. All detections are based on observable log artifacts. Defenders alert on access attempts and suspicious behaviour, not confirmed damage.
 
@@ -40,6 +40,8 @@ The attack chain progresses from initial reconnaissance through credential acces
 | 06 | Credential Dumping — LSASS | CRITICAL | Sysmon EID 1 | TA0006 Credential Access |
 | 07 | Lateral Movement — PsExec | CRITICAL | EID 7045, 4624, Sysmon 1 | TA0008 Lateral Movement |
 | 08 | Kerberoasting | HIGH | EID 4769 | TA0006 Credential Access |
+| 09 | Pass-the-Hash | HIGH | EID 4624 | TA0008 Lateral Movement |
+| 10 | DCSync | HIGH | EID 4662 | TA0006 Credential Access |
 
 ---
 
@@ -520,6 +522,133 @@ index=main EventCode=4769 Ticket_Encryption_Type=0x17
 
 ---
 
+## Incident 09 — Pass-the-Hash
+
+**Severity:** HIGH  
+**Attack Tool:** Impacket PsExec with NTLM hash  
+**Source:** 192.168.67.24 (Kali)  
+**Target:** 192.168.67.23 (Windows 10 Pro)  
+
+### Detection
+
+Windows Event ID 4624 (Successful Logon) with Logon Type 3 (network logon) from an external IP, where the Logon_Process field shows `NtLmSsp` instead of `Kerberos`. In a healthy domain environment, administrator logins between machines use Kerberos by default. NTLM authentication from a non-domain IP is the smoking gun — the attacker is using a raw NTLM hash, not a password, and has no Kerberos ticket to present.
+
+**NTLM hash used:** Administrator:570a9a65db8fba761c1008a51d4c95ab (obtained via LSASS dump in Incident 6)
+
+### SPL Query
+
+```spl
+index=main EventCode=4624 Logon_Type=3
+| search Logon_Process="NtLmSsp" Account_Name="Administrator"
+| table _time, Account_Name, Logon_Type, src_ip, Workstation_Name, Logon_Process
+| sort -_time
+```
+
+### Indicators of Compromise
+
+- EID 4624 Logon Type 3 with `Logon_Process=NtLmSsp` — NTLM used instead of Kerberos
+- Account_Name: Administrator
+- src_ip: 192.168.67.24 (Kali — non-domain machine)
+- Workstation_Name: blank — attacker machine is not domain-joined
+- No preceding interactive logon (EID 4648) for the same account
+- NTLM auth from external IP — legitimate domain admins authenticate via Kerberos
+
+### MITRE ATT&CK
+
+`TA0008 Lateral Movement` | `T1550.002 Pass-the-Hash`
+
+> **Note:** Pass-the-Hash requires zero cracking — the NTLM hash is the credential. The attacker obtained the Administrator hash in Incident 6 and used it directly against Windows 10 over SMB. No plaintext password was ever known.
+
+### Incident Response — Tier 1 SOC Analyst
+
+| Step | Action |
+|---|---|
+| 1. Alert Review | EID 4624 Logon Type 3 from external IP with Logon_Process = NtLmSsp. In a domain environment, admin logins between machines use Kerberos by default. NTLM from a non-domain IP is immediately suspicious. |
+| 2. Key Fields | Account_Name: Administrator. src_ip: 192.168.67.24 (Kali). Logon_Type: 3 (network). Logon_Process: NtLmSsp. Workstation_Name: blank (attacker machine not domain-joined). |
+| 3. NtLmSsp Significance | NtLmSsp confirms NTLM authentication was used. The attacker never needed the plaintext password — the hash alone is sufficient. This is Pass-the-Hash. |
+| 4. Scope Check | Which machines did this source IP authenticate to? Check all EID 4624 Logon Type 3 events from the same IP across all hosts. Determine lateral movement scope. |
+| 5. Correlate with Incident 6 | This attack was enabled by the LSASS dump in INC-006. The hash obtained there was used directly here. Containment of INC-006 would have prevented this. |
+| 6. TP/FP Decision | **TP.** NtLmSsp Logon Type 3 from a non-domain IP authenticating as Administrator is not legitimate activity in this environment. |
+| 7. Document | Record: source IP, account used, Logon_Process field, timestamp, all machines with matching Logon Type 3 from the same IP. Link to INC-006. Open a P1 ticket. |
+| 8. Escalate to T2 | Escalate with correlation to INC-006. T2 will: rotate Administrator password, force Kerberos-only auth, investigate full lateral movement scope, and isolate affected machines. |
+
+### Root Cause Analysis
+
+| | |
+|---|---|
+| **Root Cause** | NTLM hash for Administrator obtained via LSASS dump (INC-006) and used directly for lateral movement without cracking. |
+| **Vulnerability** | NTLM authentication permitted from non-domain machines. Admin$ SMB share accessible from external IPs. No SMB signing enforced. |
+| **Contributing Factor** | INC-006 credential dump was not contained. A single Administrator hash grants access to all machines where that account exists with the same password. |
+| **Remediation** | 1. Deploy Credential Guard to protect NTLM hashes in memory. 2. Enforce SMB signing to prevent relay attacks. 3. Disable NTLM where Kerberos is available (Group Policy). 4. Implement tiered admin model — domain admin accounts never used on workstations. 5. Network segmentation to restrict SMB access between workstations. |
+| **Lessons Learned** | Pass-the-Hash requires zero cracking — the hash is the credential. Containing credential dumps immediately is critical. A single unrotated hash provides persistent lateral movement capability across every machine sharing that account. |
+
+---
+
+## Incident 10 — DCSync
+
+**Severity:** HIGH  
+**Attack Tool:** Impacket secretsdump (DRSUAPI method)  
+**Source:** 192.168.67.24 (Kali)  
+**Target:** 192.168.67.22 (Domain Controller)  
+
+### Detection
+
+DCSync abuses Active Directory's built-in Directory Replication Service (DRSUAPI) protocol. The attacker impersonates a Domain Controller and requests all domain password hashes from the real DC — including the krbtgt hash. The DC complies because the request uses a legitimate replication protocol and the attacker holds domain admin credentials.
+
+No code runs on the DC. No files are dropped. No service is created. The attack is a network-level replication request — making it extremely difficult to detect without specific AD object-level auditing configured.
+
+**Correct detection:** Event ID 4662 with DS-Replication GUIDs (`1131f6aa`, `1131f6ab`) from a source IP that is not a Domain Controller.
+
+**Detection gap note:** EID 4662 did not fire on Windows Server 2016 in this lab despite correct ADSI object auditing and Directory Service Replication audit policy configuration. This is a documented real-world limitation of Windows Server 2016 in certain VM environments. The detection gap is recorded accurately — a documented gap is more professionally valuable than a fabricated detection.
+
+### SPL Query
+
+```spl
+index=main EventCode=4662
+| search Properties="*1131f6aa*" OR Properties="*1131f6ab*"
+| table _time, Account_Name, Object_Name, Properties
+| sort -_time
+```
+
+### Indicators of Compromise
+
+- EID 4662 with DS-Replication-Get-Changes GUIDs (`1131f6aa`, `1131f6ab`) from non-DC source
+- Account_Name: domain admin account used (Administrator)
+- Source IP is not a registered Domain Controller IP
+- Large volume of NTLM hashes retrieved in short timeframe
+- krbtgt hash retrieved — enables Golden Ticket attacks
+- No corresponding DC-to-DC replication scheduled at that time
+
+### MITRE ATT&CK
+
+`TA0006 Credential Access` | `T1003.006 DCSync`
+
+> **Note:** EID 4662 did not generate in this lab on Windows Server 2016 despite correct audit policy. In production, Microsoft Defender for Identity (formerly ATA) detects DCSync at the network level by identifying DRSUAPI calls from non-DC machines — providing detection independent of Windows event logging.
+
+### Incident Response — Tier 1 SOC Analyst
+
+| Step | Action |
+|---|---|
+| 1. Attack Summary | Attacker used DRSUAPI to impersonate a DC and pull all domain hashes including krbtgt, Administrator, and all service accounts. All domain credentials must be treated as compromised. |
+| 2. Hashes Obtained | Administrator, krbtgt, sqlsvc, lisa, john, and all machine account hashes were retrieved. krbtgt hash enables Golden Ticket attacks — persistent, undetectable domain access. |
+| 3. Severity Assessment | Critical severity. krbtgt compromise enables forged Kerberos tickets valid for any user, any resource, any duration. The domain is fully compromised. |
+| 4. Detect in Splunk | Search EID 4662 for DS-Replication GUIDs. If 4662 is not generating, check Microsoft Defender for Identity or network-level DRSUAPI detection. |
+| 5. Document | Record: account used, source IP, timestamp, hashes confirmed retrieved, detection gap if 4662 produced no events. Open a P1 ticket and escalate immediately. |
+| 6. Escalate to T2 | Escalate as CRITICAL. T2 actions: reset krbtgt password twice (invalidates all existing tickets), rotate all service account passwords, investigate privilege escalation path, initiate full domain compromise response. |
+
+### Root Cause Analysis
+
+| | |
+|---|---|
+| **Root Cause** | Domain Administrator credentials compromised (via Pass-the-Hash from INC-009) and used to abuse AD replication protocol to extract all domain hashes. |
+| **Vulnerability** | Any account with DS-Replication-Get-Changes-All permission can perform DCSync. Built-in Administrator always has this right. No detection was in place for replication from non-DC machines. |
+| **Contributing Factor** | Chain of uncontained incidents: INC-006 (LSASS dump) → INC-009 (Pass-the-Hash) → INC-010 (DCSync). Each incident enabled the next. |
+| **Detection Gap** | EID 4662 did not fire on Windows Server 2016 in this lab environment despite correct audit policy configuration. This is documented as a real-world logging limitation. Production environments should validate EID 4662 generation via purple team exercises before relying on this detection. |
+| **Remediation** | 1. Reset krbtgt password twice to invalidate all existing Kerberos tickets. 2. Revoke all active Kerberos tickets domain-wide. 3. Rotate all service account and admin passwords. 4. Implement tiered admin model — Domain Admin accounts never used on workstations. 5. Validate EID 4662 detection in production via purple team. 6. Deploy Microsoft Defender for Identity for network-level DCSync detection. |
+| **Lessons Learned** | DCSync is stealthy — it uses a legitimate AD protocol with no code executed on the DC. The real prevention is stopping privilege escalation earlier in the chain. If INC-006 (LSASS dump) had been contained, neither INC-009 nor INC-010 would have been possible. |
+
+---
+
 ## Detection & IR Summary
 
 | # | Incident | Severity | Key Event ID | T1 Action | RCA Fix |
@@ -532,3 +661,5 @@ index=main EventCode=4769 Ticket_Encryption_Type=0x17
 | 06 | Cred Dump LSASS | CRITICAL | Sysmon EID 1 | Pivot to Logon Type 3, escalate as P1 | Credential Guard + PPL |
 | 07 | Lateral Move PsExec | CRITICAL | EID 7045, 4624 | Check binary name, scope all machines | SMB Signing + Tiered Admin |
 | 08 | Kerberoasting | HIGH | EID 4769 | Check SPN scope, flag Lisa, escalate | gMSA + AES-Only |
+| 09 | Pass-the-Hash | HIGH | EID 4624 | Check NtLmSsp, scope all machines, correlate INC-006 | Credential Guard + NTLM Disable |
+| 10 | DCSync | HIGH | EID 4662 | Escalate as CRITICAL, reset krbtgt x2 | Defender for Identity + Tiered Admin |
