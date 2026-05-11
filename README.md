@@ -61,7 +61,6 @@ Each incident includes:
 | `README.md` | This file |
 | `SOC_Detection_Report.md` | Full report — all 11 incidents with detection, IR, and RCA |
 | `SOC_Detection_Report.pdf` | PDF version of the report |
-| `attack_chain.html` | Interactive attack chain diagram |
 | `Queries/01_port_scan.spl` | SPL — Port scan detection |
 | `Queries/02_brute_force_linux.spl` | SPL — Linux SSH brute force |
 | `Queries/03_brute_force_windows.spl` | SPL — Windows SSH brute force |
